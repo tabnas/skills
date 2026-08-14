@@ -1,0 +1,12 @@
+{
+  "servers": {
+    "tabnas": {
+      "type": "stdio",
+      "command": ["npx", "--yes", "@tabnas/mcp@0.1.0", "mcp"]
+    },
+    "tabnas-hosted": {
+      "type": "streamable-http",
+      "url": "https://mcp.tabnas.dev/mcp"
+    }
+  }
+}

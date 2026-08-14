@@ -1,0 +1,9 @@
+{
+  "name": "tabnas-skills",
+  "private": true,
+  "description": "The tabnas Agent Plugins package. Not an npm package: private is deliberate and this file exists only to carry the validation script.",
+  "license": "MIT",
+  "scripts": {
+    "test": "node tools/validate.js"
+  }
+}
