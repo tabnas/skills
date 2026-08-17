@@ -86,8 +86,18 @@ the MCP `list_plugins` / `describe_plugin` tools (CLI: `tabnas plugins`).
 Fields, from the fleet's fixed example: `$schema`
 (`https://tabnas.dev/schema/plugin.schema.json`), `name`, `go`, `description`,
 `base`, `engine`, `grammar`, `extensions`, `mediaTypes` (where applicable),
-`specDir` (`test/spec`), `errorCodes`, `docs`, `repository`, `versionSource`.
+`specDir` (`test/spec`), `clib` (where applicable), `errorCodes`, `docs`,
+`repository`, `versionSource`.
 
+- **`clib` is present only on a repo carrying the ADR-12 stamped `go/clib`.**
+  It is an object — `dir`, `library` (the shared library this repo builds,
+  e.g. `libtabnascsv`), `abi` (the uniform ABI version), and its own
+  `errorCodes`. Those are the C ABI's *call-level* codes
+  (`usage`/`grammar`/`handle`/`internal`), a different namespace from the
+  top-level `errorCodes`, which are the format's parse diagnostics. A repo
+  with a bespoke C library (parser, bnf, gbnf) has no `clib` key: the field
+  means "this repo implements the uniform five-symbol ABI", not "this repo
+  has a C library".
 - **No `version` field.** `versionSource` names where the version lives
   (`ts/package.json`) so nothing has to be kept in step by hand.
 - It is **generated** from `ts/package.json` + `go/go.mod` + the grammar file
