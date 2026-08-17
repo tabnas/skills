@@ -64,6 +64,14 @@ input — stop debugging the grammar and read the plugin code. Plugins add
 their own codes via `options.error`/`options.hint`; a plugin's declared codes
 are listed in its `tabnas.plugin.json` (`errorCodes`).
 
+Do not confuse that with the descriptor's `clib.errorCodes`, which is a
+separate namespace: the *call-level* codes a repo's C ABI library returns
+(`usage`, `grammar`, `handle`, `internal`). `internal` appears in both and
+means different things — the engine's is a recovered panic inside a plugin
+callback, the ABI's is a failed FFI call. If the code reached you as
+`{"ok":false,"error":{"code":…}}` from a `libtabnas*` library, it is the ABI
+namespace; a parse diagnostic never arrives in that envelope.
+
 ## 3 · Read the rendered message too
 
 The human rendering carries one line the diagnostic summarises for you:
