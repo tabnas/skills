@@ -246,6 +246,11 @@ if (plugin) {
   if ('MIT' !== plugin.license) fail(`plugin.json: license must be MIT (got ${JSON.stringify(plugin.license)})`);
 }
 
+// --online (or VALIDATE_ONLINE=1) additionally checks the pinned MCP
+// version really exists. Off by default: the default run must work with no
+// network, which is why this file has no dependencies in the first place.
+const ONLINE = process.argv.includes('--online') || '1' === process.env.VALIDATE_ONLINE;
+
 const mcp = readJson('mcp.json');
 if (mcp) {
   // Collect server entries wherever the manifest keeps them.
@@ -263,6 +268,21 @@ if (mcp) {
       }
       if (!/^@tabnas\/mcp@\d+\.\d+\.\d+$/.test(String(cmd[2]))) {
         fail(`mcp.json: stdio server '${sname}' command[2] must be an exact pin @tabnas/mcp@x.y.z (got ${JSON.stringify(cmd[2])})`);
+      } else if (ONLINE) {
+        // Shape is not existence. This regex happily accepted
+        // @tabnas/mcp@0.1.0 — a version that was tagged but never published,
+        // so every documented `npx --yes @tabnas/mcp@0.1.0 mcp` 404'd. The
+        // pin is a promise that an agent can install this exact version;
+        // only the registry can keep it. Opt-in (--online / VALIDATE_ONLINE)
+        // so the default run stays offline and dependency-free.
+        const spec = String(cmd[2]);
+        try {
+          require('child_process').execFileSync('npm', ['view', spec, 'version'], {
+            encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+          });
+        } catch {
+          fail(`mcp.json: stdio server '${sname}' pins ${spec}, which does not exist on the registry — \`npx --yes ${spec} mcp\` would 404. Run tools/sync-mcp-pin.js --apply`);
+        }
       }
       if ('mcp' !== cmd[3]) {
         fail(`mcp.json: stdio server '${sname}' command[3] must be "mcp" — the CLI subcommand that starts the stdio server; without it npx runs the bare CLI and prints usage instead of serving`);

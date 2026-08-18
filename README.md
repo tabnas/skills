@@ -60,7 +60,7 @@ commands they teach executable.
 [`mcp.json`](mcp.json) declares both execution modes:
 
 - **`tabnas` (stdio, local — the primary, recommended path).** Runs
-  `npx --yes @tabnas/mcp@0.1.0 mcp` — the package's one bin is the unified
+  `npx --yes @tabnas/mcp@0.1.3 mcp` — the package's one bin is the unified
   `tabnas` CLI, and its `mcp` subcommand is what starts the stdio server
   (without it you get CLI usage output, not a server). The `npx` invocation
   itself has two load-bearing parts:
@@ -73,17 +73,18 @@ commands they teach executable.
     beside it. The release process writes each new exact version into
     `mcp.json` so the pair move together.
 
-  **Caveat:** `@tabnas/mcp` is **not yet published to npm** — `0.1.0` is its
-  planned first release, so the stdio entry (like the hosted one below) is
-  declared ahead of the thing it points at and goes live when that release
-  ships.
+  The pin is checked, not remembered: `tools/sync-mcp-pin.js` rewrites it
+  from the registry and `tools/validate.js --online` fails if the pinned
+  version does not exist. It once pinned `0.1.0`, which was tagged but never
+  published, so the documented command 404'd.
 - **`tabnas-hosted` (streamable-http).** `https://mcp.tabnas.dev/mcp` — the
   hosted endpoint is **Phase 4 of the AX plan and does not exist yet**; the
   entry ships now because the standard models the local/hosted split in one
   file, and it is versioned by deployment so it needs no pin.
 
-The server exposes six tools (parse, validate_grammar, explain_parse_error,
-test_grammar, list_plugins, describe_plugin) and the unified `tabnas` CLI
+The server exposes seven tools (parse, validate_grammar,
+explain_parse_error, test_grammar, list_plugins, describe_plugin,
+compare_grammars) and the unified `tabnas` CLI
 mirrors them — `tabnas parse|validate|diagnose|test|plugins`, all with
 `--json` — from one shared implementation, so the two cannot disagree. The
 skills teach the CLI spellings.
