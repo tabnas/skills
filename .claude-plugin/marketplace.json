@@ -1,0 +1,32 @@
+{
+  "name": "tabnas",
+  "owner": {
+    "name": "tabnas",
+    "url": "https://tabnas.dev"
+  },
+  "metadata": {
+    "description": "The tabnas parser fleet: skills and MCP servers for authoring, debugging, testing and shipping grammars.",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "tabnas",
+      "source": "./",
+      "description": "Tabnas parser-fleet skills and MCP servers: author, debug, test and ship grammars for the tabnas engine.",
+      "version": "0.1.0",
+      "author": {
+        "name": "tabnas",
+        "url": "https://tabnas.dev"
+      },
+      "homepage": "https://tabnas.dev/skills",
+      "license": "MIT",
+      "keywords": [
+        "tabnas",
+        "parser",
+        "grammar",
+        "abnf",
+        "mcp"
+      ]
+    }
+  ]
+}

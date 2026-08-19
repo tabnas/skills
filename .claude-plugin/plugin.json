@@ -1,0 +1,20 @@
+{
+  "name": "tabnas",
+  "version": "0.1.0",
+  "description": "Tabnas parser-fleet skills and MCP servers: author, debug, test and ship grammars for the tabnas engine.",
+  "author": {
+    "name": "tabnas",
+    "url": "https://tabnas.dev"
+  },
+  "homepage": "https://tabnas.dev/skills",
+  "repository": "https://github.com/tabnas/skills",
+  "license": "MIT",
+  "keywords": [
+    "tabnas",
+    "parser",
+    "grammar",
+    "abnf",
+    "mcp",
+    "skills"
+  ]
+}

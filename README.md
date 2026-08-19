@@ -115,25 +115,52 @@ as soon as a networked environment allows, and fix whatever they flag.
 
 ## CI
 
-The workflow is staged at [`ci/ci.yml`](ci/ci.yml) — it runs
-`node tools/validate.js` on push and pull request, nothing more (this repo
-has no build). Automation credentials cannot write `.github/workflows/`
-(ADR-8), so a maintainer promotes the file to `.github/workflows/ci.yml`.
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs
+`node tools/validate.js` twice on push and pull request (this repo has no
+build). The second run is `--online`, and it is the one that matters: the
+pin regex checks the SHAPE of `@tabnas/mcp@<x.y.z>`, and shape is not
+existence. `mcp.json` once pinned `0.1.0`, which was tagged but never
+published, so every documented `npx` command 404'd while validation stayed
+green.
 
-## `plugin.json` vs `tabnas.plugin.json`
+Automation credentials cannot write `.github/workflows/` (ADR-8), so any
+future change is staged in `ci/` for a maintainer to promote.
 
-Two unrelated things both want to be called a plugin manifest, and both exist
-in this org:
+## Installing in Claude Code
 
-- **`plugin.json`** (this repo) — *this repository is an agent plugin*, in
-  the Agent Plugins sense.
-- **`tabnas.plugin.json`** (in each grammar repo) — *that repository is a
-  grammar plugin for the tabnas engine*: the machine-readable descriptor
-  behind `tabnas plugins`.
+Two commands, not one. Adding a marketplace only registers the catalogue;
+installing is separate, and an instruction that omits the second line leaves
+the five skills and the MCP servers unavailable:
 
-The `tabnas.` prefix avoids a literal collision, and the two can sit side by
-side in one repo. The distinction is documented here and in the skills rather
-than left to be inferred.
+```text
+/plugin marketplace add tabnas/skills   # registers the catalogue
+/plugin install tabnas@tabnas           # installs the plugin from it
+```
+
+`tabnas@tabnas` is `<plugin>@<marketplace>`. Both halves are public-facing,
+and a user may register only one marketplace per name, so the marketplace
+name is a claim made on the org's behalf — one org, one plugin, matching the
+root `plugin.json`.
+
+## Three things called a plugin manifest
+
+Two unrelated meanings, and one of them is written twice:
+
+| file | means |
+| --- | --- |
+| `plugin.json` (root) | this repository is an agent plugin — portable, Agent Plugins |
+| `.claude-plugin/plugin.json` | the same claim again, in Claude Code's own format |
+| `tabnas.plugin.json` (in each grammar repo) | that repository is a **grammar** plugin for the engine: the descriptor behind `tabnas plugins` |
+
+The `tabnas.` prefix avoids a literal collision with the first two, and only
+the third is ours to define.
+
+The duplication between the first two is not redundancy that can be removed:
+**Claude Code reads `.claude-plugin/plugin.json`, not the root
+`plugin.json`.** Without the `.claude-plugin/` pair this repo was
+standard-conformant and uninstallable by that route at the same time — true
+for months, and stated nowhere. Keep both in step; the root manifest is the
+portable claim, and `.claude-plugin/` is what one client will actually read.
 
 ## License
 
