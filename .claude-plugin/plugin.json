@@ -1,6 +1,6 @@
 {
   "name": "tabnas",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Tabnas parser-fleet skills and MCP servers: author, debug, test and ship grammars for the tabnas engine.",
   "author": {
     "name": "tabnas",

@@ -246,6 +246,34 @@ if (plugin) {
   if ('MIT' !== plugin.license) fail(`plugin.json: license must be MIT (got ${JSON.stringify(plugin.license)})`);
 }
 
+// The same plugin is declared three times: the portable Agent Plugins
+// manifest at the root, Claude Code's own copy under .claude-plugin/, and
+// the marketplace entry that lists it. Claude Code reads the second, users
+// read the first, and the third is what a `/plugin install` resolves — so a
+// disagreement between them ships a plugin whose advertised version is not
+// the one installed.
+//
+// Nothing was checking. Every other exact-version pin in this org has
+// drifted at least once; this one had three copies and no gate.
+const cc = readJson('.claude-plugin/plugin.json');
+const market = readJson('.claude-plugin/marketplace.json');
+if (plugin && cc) {
+  if (cc.name !== plugin.name) {
+    fail(`.claude-plugin/plugin.json: name ${JSON.stringify(cc.name)} != plugin.json ${JSON.stringify(plugin.name)}`);
+  }
+  if (cc.version !== plugin.version) {
+    fail(`.claude-plugin/plugin.json: version ${JSON.stringify(cc.version)} != plugin.json ${JSON.stringify(plugin.version)}`);
+  }
+}
+if (plugin && market) {
+  const entry = (market.plugins || []).find((x) => x.name === plugin.name);
+  if (!entry) {
+    fail(`.claude-plugin/marketplace.json: no plugin entry named ${JSON.stringify(plugin.name)}`);
+  } else if (entry.version !== plugin.version) {
+    fail(`.claude-plugin/marketplace.json: ${plugin.name} version ${JSON.stringify(entry.version)} != plugin.json ${JSON.stringify(plugin.version)}`);
+  }
+}
+
 // --online (or VALIDATE_ONLINE=1) additionally checks the pinned MCP
 // version really exists. Off by default: the default run must work with no
 // network, which is why this file has no dependencies in the first place.

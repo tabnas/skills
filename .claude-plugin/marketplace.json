@@ -13,7 +13,7 @@
       "name": "tabnas",
       "source": "./",
       "description": "Tabnas parser-fleet skills and MCP servers: author, debug, test and ship grammars for the tabnas engine.",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "author": {
         "name": "tabnas",
         "url": "https://tabnas.dev"
