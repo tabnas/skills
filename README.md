@@ -5,6 +5,8 @@ to do real work with the tabnas parser fleet — author a grammar, debug a
 parse, pin behaviour with fixtures, build and upgrade grammar plugins — plus
 the manifest entries that connect the agent to the tabnas MCP servers.
 
+The catalogue, with a page per skill: **[tabnas.dev/skills](https://tabnas.dev/skills/)**.
+
 Everything here is **distilled from material that already exists and is
 already tested**: the twelve how-to guides on the tabnas website, the zon
 plugin-template guide, the parser repo's machine-readable schemas
@@ -78,14 +80,16 @@ commands they teach executable.
   version does not exist. It once pinned `0.1.0`, which was tagged but never
   published, so the documented command 404'd.
 - **`tabnas-hosted` (streamable-http).** `https://mcp.tabnas.dev/mcp` — the
-  hosted endpoint is **Phase 4 of the AX plan and does not exist yet**; the
-  entry ships now because the standard models the local/hosted split in one
-  file, and it is versioned by deployment so it needs no pin.
+  hosted endpoint, live since 2026-08-19, for clients that cannot spawn a
+  process. Bounded by a body cap and a per-IP rate limit, both reported by
+  its `/.well-known/mcp`; document content is never logged, stored, or used
+  for training. It is versioned by deployment so it needs no pin. Local
+  stdio stays the recommended path.
 
 The server exposes seven tools (parse, validate_grammar,
 explain_parse_error, test_grammar, list_plugins, describe_plugin,
 compare_grammars) and the unified `tabnas` CLI
-mirrors them — `tabnas parse|validate|diagnose|test|plugins`, all with
+mirrors them — `tabnas parse|validate|diagnose|test|plugins|compare`, all with
 `--json` — from one shared implementation, so the two cannot disagree. The
 skills teach the CLI spellings.
 
