@@ -1,6 +1,6 @@
 ---
 name: debug-parse
-description: Diagnose a failing tabnas parse. Get the structured diagnostic with `tabnas diagnose --json`, read code, row/col, expected and ruleStack, look the code up in the error registry, then climb the grammar-debugging ladder — print the rules, print the tokens, model the instance, trace the parse — until the failing alternate is found. Use when a parse throws, when a grammar rejects input that should be valid, when an error points at the wrong place, or when you need to interpret a tabnas error code or diagnostic object.
+description: Diagnose a failing tabnas parse. Get the structured diagnostic with `tabnas diagnose --json`, read code, row/col, expected and ruleStack, look the code up in the error registry, then climb the grammar-debugging ladder (print the rules, print the tokens, model the instance, trace the parse) until the failing alternate is found. Use when a parse throws, when a grammar rejects input that should be valid, when an error points at the wrong place, or when you need to interpret a tabnas error code or diagnostic object.
 license: MIT
 compatibility: Steps beyond the CLI need a local tabnas checkout or an installed @tabnas/parser; the deeper rungs of the ladder additionally use the dev-only @tabnas/debug and @tabnas/railroad packages.
 ---

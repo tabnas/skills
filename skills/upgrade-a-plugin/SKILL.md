@@ -1,6 +1,6 @@
 ---
 name: upgrade-a-plugin
-description: Bring an existing tabnas grammar plugin up to fleet standard or onto a newer engine. Audit the repo with the admin ax tasks, regenerate a stale tabnas.plugin.json descriptor, close declared-vs-exercised error-code gaps with the support census helpers and `make ax-codes`, re-verify fixture parity in both runtimes with `make build && make test`, and record any cross-runtime result difference in DIVERGENCE.md. Use when modernising a plugin repository, bumping its @tabnas/parser engine version, fixing descriptor or fixture drift, or converting bare ERROR fixtures to code-pinned ones.
+description: Bring an existing tabnas grammar plugin up to fleet standard or onto a newer engine. Audit the repo with the admin ax tasks, regenerate a stale tabnas.plugin.json descriptor, close declared-vs-exercised error-code gaps with the support census helpers and `make ax-codes`, re-verify fixture parity in both runtimes with `make build && make test`, and record any cross-runtime result difference in the parity ledger. Use when modernising a plugin repository, bumping its @tabnas/parser engine version, fixing descriptor or fixture drift, or converting bare ERROR fixtures to code-pinned ones.
 license: MIT
 compatibility: Requires a local checkout of the tabnas fleet, including the admin repo (for the ax audit tasks) and the plugin being upgraded.
 ---
@@ -129,7 +129,7 @@ regression (report upstream), plugin bug (fix here), or intended new
 behaviour (update the fixture **in the same change** as the bump, so the diff
 records what moved). Diagnose individual failures with the debug-parse skill.
 
-## 6 · DIVERGENCE.md discipline
+## 6 · Record cross-runtime differences
 
 TypeScript is canonical; Go tracks it. A place where the two runtimes produce
 a **different result for the same input** is a divergence, and the bar is
