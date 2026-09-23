@@ -3,8 +3,9 @@
 //
 // Dependency-free (node built-ins only). Exits 1 on any failure, with one
 // clear message per failure. Checks the SKILL.md format rules (ADR-11), the
-// two manifests, and that every markdown link — inline or reference-style,
-// in SKILL.md and references/ alike — resolves.
+// manifests and the copies Claude Code reads (the plugin version in three
+// places, the MCP servers in two), and that every markdown link — inline or
+// reference-style, in SKILL.md and references/ alike — resolves.
 //
 // Known limit, recorded in README: the published Agent Plugins JSON Schemas
 // and `skills-ref validate` could not be reached from the authoring
@@ -327,6 +328,54 @@ if (mcp) {
   if (!sawHosted) fail('mcp.json: no streamable-http (hosted) server entry found');
 }
 
+// .mcp.json declares the same servers again, in Claude Code's format. Claude
+// Code reads neither mcp.json nor a manifest field pointing at it: measured
+// with 2.1.280, the installed plugin reported "MCP servers (0)" without this
+// file and "(2)" with it, although the README had said for months that both
+// servers were delivered.
+//
+// It is a COPY, so like the version copies above it is compared with the
+// contract instead of being checked on its own. Every rule mcp.json obeys,
+// the pin included, then holds here as well. Claude Code spells the same
+// things differently: a stdio server is `command` plus `args` (with `type`
+// omitted or "stdio"), and streamable HTTP is type "http".
+const ccMcp = readJson('.mcp.json');
+if (mcp && ccMcp) {
+  const want = (mcp.servers && 'object' === typeof mcp.servers) ? mcp.servers : mcp;
+  const got = ccMcp.mcpServers;
+  if (null === got || 'object' !== typeof got || Array.isArray(got)) {
+    fail('.mcp.json: servers must be an object under "mcpServers", the key Claude Code reads');
+  } else {
+    const names = (o) => Object.keys(o).sort().join(', ');
+    if (names(want) !== names(got)) {
+      fail(`.mcp.json: servers [${names(got)}] != mcp.json servers [${names(want)}]`);
+    }
+    for (const [sname, s] of Object.entries(want)) {
+      const c = got[sname];
+      if (null === s || 'object' !== typeof s || null == c || 'object' !== typeof c) continue;
+      const extra = (allowed) => Object.keys(c).filter((k) => !allowed.includes(k));
+      if (Array.isArray(s.command)) {
+        const line = [c.command, ...(Array.isArray(c.args) ? c.args : [c.args])];
+        if (undefined !== c.type && 'stdio' !== c.type) {
+          fail(`.mcp.json: '${sname}' is stdio in mcp.json, so its type must be "stdio" or omitted (got ${JSON.stringify(c.type)})`);
+        }
+        if (JSON.stringify(line) !== JSON.stringify(s.command)) {
+          fail(`.mcp.json: '${sname}' runs ${JSON.stringify(line)}, but mcp.json runs ${JSON.stringify(s.command)}. Run tools/sync-mcp-pin.js --apply`);
+        }
+        for (const k of extra(['type', 'command', 'args'])) fail(`.mcp.json: '${sname}' has '${k}', which mcp.json does not declare`);
+      } else if ('string' === typeof s.url) {
+        if ('http' !== c.type) {
+          fail(`.mcp.json: '${sname}' type must be "http", Claude Code's name for streamable HTTP (got ${JSON.stringify(c.type)})`);
+        }
+        if (c.url !== s.url) {
+          fail(`.mcp.json: '${sname}' url ${JSON.stringify(c.url)} != mcp.json ${JSON.stringify(s.url)}`);
+        }
+        for (const k of extra(['type', 'url'])) fail(`.mcp.json: '${sname}' has '${k}', which mcp.json does not declare`);
+      }
+    }
+  }
+}
+
 // --- report ---------------------------------------------------------------
 
 if (failures.length) {
@@ -334,4 +383,4 @@ if (failures.length) {
   for (const f of failures) console.error(`  FAIL  ${f}`);
   process.exit(1);
 }
-console.log(`validate: OK — ${skillDirs.length} skills, plugin.json, mcp.json`);
+console.log(`validate: OK — ${skillDirs.length} skills, plugin.json and its two copies, mcp.json and .mcp.json`);

@@ -1,9 +1,8 @@
-# STAGED workflow — automation sessions cannot write .github/workflows/
-# (ADR-8), so this file lives in ci/ until a maintainer promotes it to
-# .github/workflows/ci.yml. Byte-move it; do not adapt.
+# Target: tabnas/skills -> .github/workflows/ci.yml
 #
 # This repo has no build and no polyglot runtimes: CI is exactly the
-# validation script, nothing else. Action tag refs are converted to pinned
+# validation script, offline, nothing else. The online checks on the
+# @tabnas/mcp pin run in release.yml. Action tag refs are converted to pinned
 # SHAs by the org Renovate preset (ADR-6).
 name: ci
 

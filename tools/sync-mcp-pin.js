@@ -15,7 +15,7 @@
  *
  * Usage:
  *   node tools/sync-mcp-pin.js            # dry run — report what would change
- *   node tools/sync-mcp-pin.js --apply    # rewrite mcp.json and the READMEs
+ *   node tools/sync-mcp-pin.js --apply    # rewrite both MCP manifests and README.md
  *   node tools/sync-mcp-pin.js --version 0.2.0 --apply   # pin explicitly
  *
  * Dependency-free, matching tools/validate.js. Exits 1 when a dry run finds
@@ -32,9 +32,14 @@ const APPLY = process.argv.includes('--apply');
 const vFlag = process.argv.indexOf('--version');
 const PINNED = vFlag > -1 ? process.argv[vFlag + 1] : null;
 
-// Files carrying the pin. mcp.json is the contract; the READMEs document it,
-// and a README showing a version nobody can install is the same bug.
-const TARGETS = ['mcp.json', 'README.md'];
+// Files carrying the pin. mcp.json is the contract (Agent Plugins).
+// .mcp.json declares the same two servers in Claude Code's format, and it is
+// the only one of the two that Claude Code reads: without it an installed
+// plugin had no MCP servers at all. The README documents the pin, and a
+// README showing a version nobody can install is the same bug.
+// tools/validate.js fails when the two manifests disagree, so a manifest
+// missing from this list cannot drift unnoticed.
+const TARGETS = ['mcp.json', '.mcp.json', 'README.md'];
 
 function published() {
   if (PINNED) return PINNED;
