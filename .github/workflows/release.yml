@@ -95,7 +95,7 @@
 # commit.
 #
 # Actions are pinned to full commit SHAs, with the matching release as a
-# trailing comment, on the lowest major whose `runs.using` is node24
+# trailing comment, at the action's latest release
 # (ADR-16).
 
 name: release
@@ -162,7 +162,7 @@ jobs:
       zip: ${{ steps.zip.outputs.zip }}
       sha256: ${{ steps.zip.outputs.sha256 }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           fetch-depth: 0              # every tag, and every tagged commit
           persist-credentials: false  # this job runs npm installs
@@ -187,7 +187,7 @@ jobs:
           echo "::error::release must be dispatched from main (got $GITHUB_REF)"
           exit 1
 
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444  # v5.0.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
         with:
           node-version: 24
 
@@ -385,7 +385,7 @@ jobs:
     steps:
       # main, as dispatched. The release commit is reached by id: in a
       # repair it is a tag's commit, which fetch-depth 0 brings along.
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
