@@ -59,7 +59,9 @@ commands they teach executable.
 
 ## The MCP servers: local and hosted
 
-[`mcp.json`](mcp.json) declares both execution modes:
+[`mcp.json`](mcp.json) declares both execution modes, and
+[`.mcp.json`](.mcp.json) declares them again for Claude Code (see
+[Two MCP manifests](#two-mcp-manifests) below):
 
 - **`tabnas` (stdio, local — the primary, recommended path).** Runs
   `npx --yes @tabnas/mcp@0.1.15 mcp` — the package's one bin is the unified
@@ -72,11 +74,12 @@ commands they teach executable.
   - The version is pinned exactly. A bare package spec would resolve the
     registry's `latest` at install time, silently picking up a future
     `@tabnas/mcp` whose tools or schemas no longer match the skills shipped
-    beside it. The release process writes each new exact version into
-    `mcp.json` so the pair move together.
+    beside it. Each `@tabnas/mcp` release (`admin/publish.sh`) runs
+    `tools/sync-mcp-pin.js`, which writes the new exact version into both
+    manifests and this README, so the pair move together.
 
   The pin is checked, not remembered: `tools/sync-mcp-pin.js` rewrites it
-  from the registry and `tools/validate.js --online` fails if the pinned
+  from the registry, and `tools/validate.js --online` fails if the pinned
   version does not exist. It once pinned `0.1.0`, which was tagged but never
   published, so the documented command 404'd.
 - **`tabnas-hosted` (streamable-http).** `https://mcp.tabnas.dev/mcp` — the
@@ -93,6 +96,22 @@ mirrors them — `tabnas parse|validate|diagnose|test|plugins|compare`, all with
 `--json` — from one shared implementation, so the two cannot disagree. The
 skills teach the CLI spellings.
 
+### Two MCP manifests
+
+Claude Code does not read `mcp.json`. It reads `.mcp.json`, in its own
+format: the stdio server is `command` plus `args`, and streamable HTTP is
+`"type": "http"`. Until 0.3.0 the plugin shipped only `mcp.json`, so
+installing it in Claude Code delivered the five skills and **no MCP
+servers**: `claude plugin details` reported `MCP servers (0)`, although
+this README implied both. With `.mcp.json` it reports both.
+
+`.mcp.json` is a copy, not a second source. `tools/validate.js` fails when it
+declares different servers, a different command line or a different URL
+from `mcp.json`, and `tools/sync-mcp-pin.js` rewrites the pin in both. One
+side effect: `.mcp.json` at a repository root is also Claude Code's
+project-scoped MCP configuration, so opening this repository in Claude Code
+offers these two servers too, after asking for approval.
+
 ## Validation
 
 ```bash
@@ -105,9 +124,12 @@ says what *and* when), the size budget (each `SKILL.md` file strictly under
 500 lines), the untrusted-input constraint (a real sentence, not scattered
 keywords), that no local absolute paths leaked into skill or reference
 text, that every markdown link — inline or reference-style, in `SKILL.md`
-and `references/` alike — resolves, and the two manifests — including that
-the stdio command is positionally `npx --yes @tabnas/mcp@<x.y.z> mcp` and
-that the hosted URL is https.
+and `references/` alike — resolves, and the manifests — including that
+the stdio command is positionally `npx --yes @tabnas/mcp@<x.y.z> mcp`, that
+the hosted URL is https, that the plugin version agrees in `plugin.json`,
+`.claude-plugin/plugin.json` and the marketplace entry, and that
+`.mcp.json` declares exactly what `mcp.json` does. `--online` also asks npm
+whether the pinned `@tabnas/mcp` version exists.
 
 **Follow-up:** the Agent Plugins standard publishes JSON Schemas for both
 manifests, and `skills-ref validate` checks skills against the Agent Skills
@@ -120,15 +142,33 @@ as soon as a networked environment allows, and fix whatever they flag.
 ## CI
 
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs
-`node tools/validate.js` twice on push and pull request (this repo has no
-build). The second run is `--online`, and it is the one that matters: the
-pin regex checks the SHAPE of `@tabnas/mcp@<x.y.z>`, and shape is not
-existence. `mcp.json` once pinned `0.1.0`, which was tagged but never
-published, so every documented `npx` command 404'd while validation stayed
-green.
+`node tools/validate.js` once, offline, on push and pull request (this repo
+has no build). It does not run `--online`, so CI checks the SHAPE of the
+`@tabnas/mcp@<x.y.z>` pin and not its existence, and `mcp.json` once pinned
+`0.1.0`, which was tagged but never published: every documented `npx`
+command 404'd while validation stayed green. The existence check, and a
+check that the pin is the latest published version, run in
+[`release.yml`](.github/workflows/release.yml) before anything is
+published.
 
-Automation credentials cannot write `.github/workflows/` (ADR-8), so any
-future change is staged in `ci/` for a maintainer to promote.
+Automation credentials cannot push changes to `.github/workflows/` (ADR-8),
+so a maintainer applies them.
+
+## Releases
+
+A release is a `tabnas--v<version>` tag and a GitHub Release carrying
+`tabnas-<version>.zip`, the plugin directory and nothing else, with its
+`.sha256`. The tag follows Claude Code's `{plugin}--v{version}` convention, so
+plugin dependency ranges resolve against it and an install can be pinned to
+it. The zip rebuilds byte for byte from the tagged commit (the command is in
+each Release's notes), and it works as a Claude Code `archive` plugin source.
+GitHub's automatic "Source code" archives are the whole repository, not the
+plugin.
+
+A release does not hold anything back: the marketplace lists the plugin as
+`"./"`, so a plain install reads `main`. Claude Code caches a plugin under its
+version, so a change reaches existing users only when the version moves. How
+to cut one is in [`AGENTS.md`](AGENTS.md#releasing).
 
 ## Installing in Claude Code
 
@@ -140,6 +180,9 @@ the five skills and the MCP servers unavailable:
 /plugin marketplace add tabnas/skills   # registers the catalogue
 /plugin install tabnas@tabnas           # installs the plugin from it
 ```
+
+To pin one release instead of following `main`, add the marketplace at its
+tag: `/plugin marketplace add tabnas/skills@tabnas--v<version>`.
 
 `tabnas@tabnas` is `<plugin>@<marketplace>`. Both halves are public-facing,
 and a user may register only one marketplace per name, so the marketplace

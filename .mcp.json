@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "tabnas": {
+      "command": "npx",
+      "args": ["--yes", "@tabnas/mcp@0.1.15", "mcp"]
+    },
+    "tabnas-hosted": {
+      "type": "http",
+      "url": "https://mcp.tabnas.dev/mcp"
+    }
+  }
+}

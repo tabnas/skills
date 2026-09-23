@@ -1,0 +1,607 @@
+# Target: tabnas/skills -> .github/workflows/release.yml
+#
+# Releases the tabnas agent plugin: a tabnas--v<version> tag on the release
+# commit, and a GitHub Release that carries the plugin as
+# tabnas-<version>.zip with its .sha256 beside it. skills is a TOOL (admin
+# ADR-20) with no npm package and no Go module, so there is no registry and
+# no OIDC. GITHUB_TOKEN does everything.
+#
+# WHAT A RELEASE MEANS HERE. .claude-plugin/marketplace.json lists the plugin
+# by relative path ("./"), so a marketplace install reads main, not a tag.
+# MERGING THE VERSION BUMP IS WHAT REACHES MARKETPLACE USERS, and this
+# workflow cannot hold it back. Claude Code caches an installed plugin under
+# its version string, so existing users get a change only when
+# .claude-plugin/plugin.json's version moves. Every change to the plugin
+# needs a bump for that reason, whether or not it is released. This run adds
+# what main cannot provide:
+#   - A tag that Claude Code reads. {plugin}--v{version} is its naming
+#     convention for plugin releases. Dependency version ranges resolve
+#     against these tags, `/plugin marketplace add
+#     tabnas/skills@tabnas--v<version>` pins an install to one release, and
+#     `claude plugin tag` produces the same name. The prefix names the
+#     consumer that reads the tag, like ts/v (npm) and go/v (the Go proxy).
+#   - A fixed artifact with a checksum. tabnas-<version>.zip holds the
+#     plugin directory and nothing else. Claude Code can use it as an
+#     `archive` plugin source (url + sha256, no git needed), and any Agent
+#     Plugins client can unpack it. The Release notes include that source
+#     entry with the digest filled in.
+#
+# ONE TRIGGER: workflow_dispatch, from main only. Bump the three version
+# copies (plugin.json, .claude-plugin/plugin.json and the marketplace entry)
+# in a reviewed PR, wait for ci to go green on main, then dispatch with the
+# `version` input left empty. There is no push: tags path, because
+# admin/publish.sh does not release this repo.
+#
+# THE TAG IS WRITTEN BY PUBLISHING THE RELEASE. The run creates the Release
+# as a draft that targets the release commit, attaches both assets, and only
+# then publishes it. GitHub creates the tag at that moment. So this workflow
+# never leaves a tag without a finished Release: a failed run leaves at most
+# a draft, and the next dispatch deletes it and builds a new one. If the org
+# enables immutable releases, this is also the order they require.
+#
+# A RE-DISPATCH FINISHES AN INCOMPLETE RELEASE. "The tag exists" is not
+# treated as "released", because a tag can exist without this workflow:
+# `claude plugin tag --push`, Claude Code's own release command, pushes one
+# with no Release, and publishing a Release by hand in the web UI writes one
+# with no assets. So the run classifies the version it was asked for and
+# does only what is missing:
+#   - No tag. A new release, or a retry of a run that failed before it
+#     published. The release commit is main's HEAD, leftover drafts are
+#     deleted, and the Release is built and published as above.
+#   - A tag, but no published Release. The release commit is the TAGGED
+#     commit, never main's HEAD, because the tag is what users already
+#     resolve. A draft is built on that tag and published.
+#   - A tag and a published Release that lacks an asset, the digest in its
+#     notes, or the Latest mark it is owed. Only the missing pieces are
+#     added. Nothing already there is replaced.
+#   - A tag and a complete Release. The run fails, as the fleet's other
+#     release workflows do once every tag exists: bump the version first.
+#     The completeness check is the same one a finished run ends with, so
+#     this failure also confirms the earlier run.
+# Anything that cannot be finished safely fails closed, to be resolved by
+# hand: a published asset whose bytes differ from a rebuild of the tagged
+# commit, a tag on a commit that is not on main, more than one published
+# Release for one tag, or a tagged commit whose plugin.json names another
+# version. To finish the Release of a version that main has moved past,
+# dispatch with `version` set to it. That input only reaches versions that
+# are already tagged: a new release is always main's own version.
+#
+# LATEST. A Release is marked Latest only when its version is the highest
+# tabnas--v tag, counted on the remote just before the Release is written. A
+# repair of an older version therefore never takes Latest from a newer one.
+#
+# TWO JOBS, SO THIRD-PARTY CODE NEVER RUNS NEXT TO THE WRITE TOKEN. verify
+# has contents: read and no persisted credentials. It runs the release
+# commit's own validator online, installs a pinned Claude Code to validate
+# the plugin the way users' clients will, and builds the zip. release has
+# contents: write and installs nothing. It rebuilds the zip from the same
+# commit and refuses to continue unless the bytes match, so every release
+# also checks reproducibility on two fresh runners.
+#
+# THE ZIP IS REPRODUCIBLE. It is `git archive` of a fixed file list at the
+# release commit, stored uncompressed (-0, so the zlib version plays no
+# part). It is built with TZ=UTC, because zip timestamps are local time, and
+# with autocrlf off, because autocrlf rewrites line endings. Either setting
+# changes the bytes; both were measured. To rebuild it:
+#   TZ=UTC git -c core.autocrlf=false -c core.eol=lf archive --format=zip -0 \
+#     --prefix=tabnas-<v>/ <commit> -- <PLUGIN_FILES> | sha256sum
+# `unzip -z` prints the archive comment, which is the commit id. GitHub's
+# automatic "Source code" archives contain the whole repository, not the
+# plugin, and are not what a client should install.
+#
+# NOT DONE HERE. Both of these need write access to a different repository:
+# regenerating web/src/data/skills.json (the site shows the plugin version),
+# and moving the community-marketplace entry, once one exists, to the new
+# commit.
+#
+# Actions are pinned to full commit SHAs, with the matching release as a
+# trailing comment, on the lowest major whose `runs.using` is node24
+# (ADR-16).
+
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: >-
+          Leave empty to release plugin.json's version from main. Set it
+          (x.y.z) only to finish the Release of a version that is already
+          tagged.
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+# The release job deletes leftover drafts for its tag before building a new
+# one. Two runs at once could delete each other's drafts, so runs queue.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+# bash -eo pipefail, so a failing command inside a pipeline fails the step.
+defaults:
+  run:
+    shell: bash
+
+env:
+  # The plugin and nothing else: what a client loads, plus the licence that
+  # the MIT terms require to travel with it. Repo tooling stays out: tools/,
+  # .github/, package.json, .tabnas-kind, AGENTS.md and CLAUDE.md. A
+  # CLAUDE.md at a plugin root also fails `claude plugin validate --strict`.
+  # A path missing at the release commit fails the archive ("pathspec did
+  # not match"), so nothing on this list can be dropped silently.
+  PLUGIN_FILES: >-
+    .claude-plugin/plugin.json
+    .claude-plugin/marketplace.json
+    plugin.json
+    mcp.json
+    .mcp.json
+    skills
+    LICENSE
+    README.md
+  # Pinned so that a validator change cannot turn a release red on its own.
+  # Nothing moves it yet: the annotation below takes effect only once
+  # renovate.json extends customManagers:githubActionsVersions.
+  # renovate: datasource=npm depName=@anthropic-ai/claude-code
+  CLAUDE_CODE_VERSION: 2.1.280
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      name: ${{ steps.v.outputs.name }}
+      version: ${{ steps.v.outputs.version }}
+      tag: ${{ steps.v.outputs.tag }}
+      sha: ${{ steps.v.outputs.sha }}
+      mode: ${{ steps.v.outputs.mode }}
+      zip: ${{ steps.zip.outputs.zip }}
+      sha256: ${{ steps.zip.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
+        with:
+          fetch-depth: 0              # every tag, and every tagged commit
+          persist-credentials: false  # this job runs npm installs
+
+      # ADR-20: only a COMPONENT or a TOOL publishes. The repository's kind
+      # is committed in .tabnas-kind (COMPONENT, TOOL, CONTENT or ADMIN), so
+      # this workflow refuses to run in a repository that does not publish.
+      - name: Refuse unless this repository publishes (COMPONENT or TOOL)
+        run: |
+          K="$(tr -d '[:space:]' < .tabnas-kind 2>/dev/null || true)"
+          case "$K" in
+            COMPONENT|TOOL) echo "kind: $K" ;;
+            *) echo "::error::.tabnas-kind is '${K:-missing}', and only a COMPONENT or a TOOL publishes (admin ADR-20)"; exit 1 ;;
+          esac
+
+      # A dispatch is not tied to the default branch: the ref is a
+      # parameter. Dispatching a branch with a version bump would tag and
+      # release a commit nobody reviewed.
+      - name: Refuse a dispatch from anywhere but main
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::release must be dispatched from main (got $GITHUB_REF)"
+          exit 1
+
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444  # v5.0.0
+        with:
+          node-version: 24
+
+      # Decides the version, the tag, the release commit, and whether this is
+      # a new release or the repair of a tagged one (see the header). Every
+      # later step, in both jobs, works on the commit chosen here, and the
+      # checkout moves to it so the validator is that commit's own.
+      - name: Decide what to release
+        id: v
+        env:
+          WANT: ${{ inputs.version }}
+        run: |
+          N="$(node -p "require('./plugin.json').name")"
+          MAIN_V="$(node -p "require('./plugin.json').version")"
+          grep -Eq '^[a-z0-9][a-z0-9-]*$' <<< "$N" \
+            || { echo "::error::plugin.json name '$N' is not a plain lowercase name"; exit 1; }
+          V="${WANT:-$MAIN_V}"
+          grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' <<< "$V" \
+            || { echo "::error::version '$V' is not exact x.y.z"; exit 1; }
+          T="$N--v$V"
+          HI="$(git tag -l "$N--v*" | sed "s/^$N--v//" \
+                | { grep -Ex '[0-9]+\.[0-9]+\.[0-9]+' || true; } | sort -V | tail -1)"
+
+          if TC="$(git rev-parse -q --verify "refs/tags/$T^{commit}")"; then
+            MODE=repair
+            SHA="$TC"
+            # The tag already exists, so this can only finish its Release.
+            # Only a reviewed commit gets an official zip.
+            git merge-base --is-ancestor "$SHA" HEAD \
+              || { echo "::error::$T is on $SHA, which is not on main. Resolve it by hand."; exit 1; }
+            TV="$(git show "$SHA:plugin.json" | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version")"
+            [ "$TV" = "$V" ] \
+              || { echo "::error::$T is on $SHA, whose plugin.json says $TV, not $V. Resolve it by hand."; exit 1; }
+            echo "$T exists at $SHA: finishing its Release"
+          else
+            [ "$V" = "$MAIN_V" ] \
+              || { echo "::error::there is no tag $T. A new release is always plugin.json's version on main ($MAIN_V); the version input only finishes an existing tag's Release."; exit 1; }
+            # Releases only move forward. Every tag here should come from
+            # main, so a version at or below the highest tag means a bump
+            # went backwards.
+            if [ -n "$HI" ] && [ "$(printf '%s\n%s\n' "$HI" "$V" | sort -V | tail -1)" != "$V" ]; then
+              echo "::error::$V is not above the highest released version, $HI. Bump the version first."
+              exit 1
+            fi
+            MODE=new
+            SHA="$(git rev-parse HEAD)"
+            echo "releasing $T at $SHA"
+          fi
+
+          LATEST=false
+          if [ "$(printf '%s\n%s\n' "$HI" "$V" | sort -V | tail -1)" = "$V" ]; then LATEST=true; fi
+          git checkout -q --detach "$SHA"
+          {
+            echo "name=$N"
+            echo "version=$V"
+            echo "tag=$T"
+            echo "sha=$SHA"
+            echo "mode=$MODE"
+            echo "latest=$LATEST"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build the plugin zip
+        id: zip
+        env:
+          N: ${{ steps.v.outputs.name }}
+          V: ${{ steps.v.outputs.version }}
+          SHA: ${{ steps.v.outputs.sha }}
+        run: |
+          ZIP="$N-$V.zip"
+          mkdir -p "$RUNNER_TEMP/dist"
+          # shellcheck disable=SC2086  # PLUGIN_FILES is a word list on purpose
+          TZ=UTC git -c core.autocrlf=false -c core.eol=lf archive --format=zip -0 \
+            --prefix="$N-$V/" -o "$RUNNER_TEMP/dist/$ZIP" "$SHA" -- $PLUGIN_FILES
+          unzip -l "$RUNNER_TEMP/dist/$ZIP"
+          {
+            echo "zip=$ZIP"
+            echo "sha256=$(sha256sum "$RUNNER_TEMP/dist/$ZIP" | cut -d' ' -f1)"
+          } >> "$GITHUB_OUTPUT"
+
+      # A repair only goes ahead if something is missing. This token can
+      # read published Releases (not drafts, which do not matter here: a
+      # draft does not make a Release complete). The checks are the ones the
+      # release job ends with.
+      - name: Refuse to repair a Release that is already complete
+        if: steps.v.outputs.mode == 'repair'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          T: ${{ steps.v.outputs.tag }}
+          LATEST: ${{ steps.v.outputs.latest }}
+          ZIP: ${{ steps.zip.outputs.zip }}
+          SUM: ${{ steps.zip.outputs.sha256 }}
+        run: |
+          R="$GITHUB_REPOSITORY"
+          PUB="$(gh api --paginate "repos/$R/releases?per_page=100" \
+                 --jq ".[] | select(.tag_name == \"$T\" and (.draft | not)) | .id")"
+          case "$(printf '%s\n' "$PUB" | awk 'NF' | wc -l)" in
+            0) echo "$T has no published Release: the release job creates it"; exit 0 ;;
+            1) ;;
+            *) echo "::error::$T has more than one published Release ($(echo "$PUB" | paste -sd' ' -)). Resolve it by hand."; exit 1 ;;
+          esac
+          NAMES="$(gh api "repos/$R/releases/$PUB" --jq '.assets[].name')"
+          has() { grep -Fxq -- "$1" <<< "$NAMES"; }
+          URL="https://github.com/$R/releases/download/$T"
+          TODO=""
+          if has "$ZIP"; then
+            GOT="$(curl -fsSL "$URL/$ZIP" | sha256sum | cut -d' ' -f1)"
+            [ "$GOT" = "$SUM" ] \
+              || { echo "::error::the published $ZIP is $GOT, but a rebuild of $T is $SUM. Resolve it by hand."; exit 1; }
+          else
+            TODO="$TODO; attach $ZIP"
+          fi
+          if has "$ZIP.sha256"; then
+            [ "$(curl -fsSL "$URL/$ZIP.sha256")" = "$SUM  $ZIP" ] \
+              || { echo "::error::the published $ZIP.sha256 does not record $SUM. Resolve it by hand."; exit 1; }
+          else
+            TODO="$TODO; attach $ZIP.sha256"
+          fi
+          BODY="$(gh api "repos/$R/releases/$PUB" --jq .body)"
+          grep -Fq -- "$SUM" <<< "$BODY" || TODO="$TODO; add the install notes"
+          if [ "$LATEST" = true ] \
+             && [ "$(gh api "repos/$R/releases/latest" --jq .tag_name 2>/dev/null || true)" != "$T" ]; then
+            TODO="$TODO; mark it Latest"
+          fi
+          if [ -z "$TODO" ]; then
+            echo "::error::$T is released and its Release is complete (assets, digest, notes, Latest all check out). Nothing to repair: bump the version to release again."
+            exit 1
+          fi
+          echo "$T is published but incomplete. To do:${TODO#;}"
+
+      # validate.js checks the skills, the manifests and every copy of the
+      # version and the MCP servers. --online also asks npm whether the
+      # pinned @tabnas/mcp exists, because the pin regex only checks its
+      # shape. Nothing here needs installing: the validator is
+      # dependency-free.
+      - name: Validate the package, online
+        run: node tools/validate.js --online
+
+      # The pin should be the latest published @tabnas/mcp; admin/publish.sh
+      # syncs it after each mcp release. A stale pin means that sync failed,
+      # and releasing would freeze the skills against an older server. A dry
+      # run exits 1 on drift, and 2 if npm cannot be reached. A repair skips
+      # this: the tagged content is already public, and the Release has to
+      # describe it as it is.
+      - name: Refuse a stale @tabnas/mcp pin
+        if: steps.v.outputs.mode == 'new'
+        run: node tools/sync-mcp-pin.js
+
+      # Validate what users will actually receive, with the tool their client
+      # uses. With a marketplace.json present, `validate <dir>` checks only
+      # the marketplace manifest and stops, so the plugin manifest gets a
+      # second call of its own. The checkout also gets `claude plugin tag
+      # --dry-run`, which works out the tag name from .claude-plugin/ and the
+      # marketplace entry, checks that they agree, and refuses if the tag
+      # exists (a repair passes --force, because there it does). Its name has
+      # to match the one this run decided above.
+      - name: Validate the plugin the way Claude Code reads it
+        env:
+          CLAUDE_CONFIG_DIR: ${{ runner.temp }}/claude
+          DISABLE_AUTOUPDATER: '1'
+          N: ${{ steps.v.outputs.name }}
+          V: ${{ steps.v.outputs.version }}
+          T: ${{ steps.v.outputs.tag }}
+          MODE: ${{ steps.v.outputs.mode }}
+          ZIP: ${{ steps.zip.outputs.zip }}
+        run: |
+          npm install -g "@anthropic-ai/claude-code@$CLAUDE_CODE_VERSION"
+          P="$RUNNER_TEMP/unpacked/$N-$V"
+          mkdir -p "$RUNNER_TEMP/unpacked"
+          unzip -q "$RUNNER_TEMP/dist/$ZIP" -d "$RUNNER_TEMP/unpacked"
+          claude plugin validate "$P" --strict
+          claude plugin validate "$P/.claude-plugin/plugin.json" --strict
+          FORCE=""; [ "$MODE" = repair ] && FORCE="--force"
+          # shellcheck disable=SC2086  # FORCE is empty or one flag
+          claude plugin tag --dry-run $FORCE . > "$RUNNER_TEMP/tag.txt" 2>&1 \
+            || { cat "$RUNNER_TEMP/tag.txt"; echo "::error::claude plugin tag refused this release"; exit 1; }
+          cat "$RUNNER_TEMP/tag.txt"
+          CT="$(awk '/^Tag:/ {print $2}' "$RUNNER_TEMP/tag.txt")"
+          [ "$CT" = "$T" ] \
+            || { echo "::error::claude plugin tag derives '${CT:-nothing}', this run decided '$T'"; exit 1; }
+
+  release:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # GITHUB_TOKEN -> drafts, assets, and publishing (which writes the tag)
+    env:
+      GH_TOKEN: ${{ github.token }}
+      N: ${{ needs.verify.outputs.name }}
+      V: ${{ needs.verify.outputs.version }}
+      T: ${{ needs.verify.outputs.tag }}
+      SHA: ${{ needs.verify.outputs.sha }}
+      MODE: ${{ needs.verify.outputs.mode }}
+      ZIP: ${{ needs.verify.outputs.zip }}
+      SUM: ${{ needs.verify.outputs.sha256 }}
+    steps:
+      # main, as dispatched. The release commit is reached by id: in a
+      # repair it is a tag's commit, which fetch-depth 0 brings along.
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # ADR-20: only a COMPONENT or a TOOL publishes. The repository's kind
+      # is committed in .tabnas-kind (COMPONENT, TOOL, CONTENT or ADMIN), so
+      # this workflow refuses to run in a repository that does not publish.
+      - name: Refuse unless this repository publishes (COMPONENT or TOOL)
+        run: |
+          K="$(tr -d '[:space:]' < .tabnas-kind 2>/dev/null || true)"
+          case "$K" in
+            COMPONENT|TOOL) echo "kind: $K" ;;
+            *) echo "::error::.tabnas-kind is '${K:-missing}', and only a COMPONENT or a TOOL publishes (admin ADR-20)"; exit 1 ;;
+          esac
+
+      # Build the zip again here, on a different runner, and require the
+      # same bytes that verify validated. What gets published is then the
+      # thing that was checked, and the zip is shown to be reproducible.
+      - name: Rebuild the zip and require the bytes verify checked
+        run: |
+          mkdir -p "$RUNNER_TEMP/dist"
+          # shellcheck disable=SC2086  # PLUGIN_FILES is a word list on purpose
+          TZ=UTC git -c core.autocrlf=false -c core.eol=lf archive --format=zip -0 \
+            --prefix="$N-$V/" -o "$RUNNER_TEMP/dist/$ZIP" "$SHA" -- $PLUGIN_FILES
+          GOT="$(sha256sum "$RUNNER_TEMP/dist/$ZIP" | cut -d' ' -f1)"
+          [ "$GOT" = "$SUM" ] \
+            || { echo "::error::rebuilt $ZIP is $GOT, but verify validated $SUM. The build is not reproducible, so nothing is published."; exit 1; }
+          (cd "$RUNNER_TEMP/dist" && sha256sum "$ZIP" > "$ZIP.sha256")
+          echo "$ZIP $SUM"
+
+      # verify read the tags from its own checkout, which may now be stale,
+      # so read the remote again before anything is written. A new release
+      # needs the tag to be free; a repair needs it still on the commit
+      # verify built from. `claude plugin tag` makes annotated tags, so the
+      # peeled ^{} line wins when there is one. ls-remote exits 2 when
+      # nothing matches; any other nonzero exit means the remote could not
+      # be read, and that fails closed.
+      - name: Check the tag on the remote, and decide Latest
+        id: tag
+        run: |
+          RC=0
+          REFS="$(git ls-remote --exit-code origin "refs/tags/$T" "refs/tags/$T^{}")" || RC=$?
+          case "$RC" in
+            0|2) ;;
+            *) echo "::error::could not read tags from the remote (git exit $RC)"; exit 1 ;;
+          esac
+          AT="$(printf '%s\n' "$REFS" | awk -v t="refs/tags/$T" \
+                '$2 == t "^{}" {p = $1} $2 == t {d = $1} END {print (p != "" ? p : d)}')"
+          case "$MODE" in
+            new)    [ -z "$AT" ] || { echo "::error::$T appeared on the remote after verify ran, at $AT"; exit 1; } ;;
+            repair) [ "$AT" = "$SHA" ] || { echo "::error::$T is now ${AT:-gone}, not $SHA as verify found. Resolve it by hand."; exit 1; } ;;
+            *)      echo "::error::unknown mode '$MODE'"; exit 1 ;;
+          esac
+          ALL="$(git ls-remote --tags --refs origin "refs/tags/$N--v*" | sed "s#^.*refs/tags/$N--v##")"
+          HI="$(printf '%s\n%s\n' "$ALL" "$V" \
+                | { grep -Ex '[0-9]+\.[0-9]+\.[0-9]+' || true; } | sort -V | tail -1)"
+          LATEST=false
+          if [ "$HI" = "$V" ]; then LATEST=true; fi
+          echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
+          echo "$T: ${AT:-not tagged yet}. Highest tabnas--v version: $HI, so Latest=$LATEST"
+
+      # The part of the notes this workflow owns. It carries the digest, and
+      # that is how a later run recognises notes it has already written.
+      - name: Write the install notes
+        run: |
+          MCP="$(git show "$SHA:mcp.json" | jq -r '[.servers[] | select(.command) | .command[2]] | first')"
+          MKT="$(git show "$SHA:.claude-plugin/marketplace.json" | jq -r .name)"
+          SKILLS="$(git ls-tree --name-only "$SHA:skills" | paste -sd, - | sed 's/,/, /g')"
+          URL="https://github.com/$GITHUB_REPOSITORY/releases/download/$T/$ZIP"
+          {
+            echo "Agent plugin \`$N\` $V, from commit $SHA."
+            echo
+            echo "- Skills: $SKILLS"
+            echo "- MCP server pin: \`$MCP\` (\`mcp.json\`, and \`.mcp.json\` for Claude Code)"
+            echo "- \`$ZIP\` sha256: \`$SUM\`"
+            echo
+            echo "**Claude Code.** \`/plugin marketplace add $GITHUB_REPOSITORY\` tracks main. To pin this release instead:"
+            echo
+            echo '```text'
+            echo "/plugin marketplace add $GITHUB_REPOSITORY@$T"
+            echo "/plugin install $N@$MKT"
+            echo '```'
+            echo
+            echo "**As an \`archive\` plugin source** (Claude Code 2.1.224 or later; no git needed):"
+            echo
+            echo '```json'
+            echo "{ \"name\": \"$N\", \"source\": { \"source\": \"archive\", \"url\": \"$URL\", \"sha256\": \"$SUM\" } }"
+            echo '```'
+            echo
+            echo "\`$ZIP\` is the plugin directory only. GitHub's \"Source code\" archives are the whole repository. To rebuild the zip and check the digest:"
+            echo
+            echo '```sh'
+            echo "TZ=UTC git -c core.autocrlf=false -c core.eol=lf archive --format=zip -0 \\"
+            echo "  --prefix=$N-$V/ $SHA -- $PLUGIN_FILES | sha256sum"
+            echo '```'
+          } > "$RUNNER_TEMP/header.md"
+          cat "$RUNNER_TEMP/header.md"
+
+      # Every Release on this tag is read through the API, drafts included
+      # (this token can see them), and addressed by id from then on, so
+      # nothing depends on which of several same-named Releases a tag lookup
+      # returns. Drafts are always deleted rather than reused, so a Release
+      # never mixes assets from two runs.
+      - name: Create, or finish, the Release
+        env:
+          LATEST: ${{ steps.tag.outputs.latest }}
+        run: |
+          R="$GITHUB_REPOSITORY"
+          LIST="$(gh api --paginate "repos/$R/releases?per_page=100" \
+                  --jq ".[] | select(.tag_name == \"$T\") | \"\(.id) \(.draft)\"")"
+          PUB="$(printf '%s\n' "$LIST" | awk '$2 == "false" {print $1}')"
+          DRAFTS="$(printf '%s\n' "$LIST" | awk '$2 == "true" {print $1}')"
+          case "$(printf '%s\n' "$PUB" | awk 'NF' | wc -l)" in
+            0) ;;
+            1) [ "$MODE" = repair ] \
+                 || { echo "::error::a published Release $T exists without its tag. Resolve it by hand."; exit 1; } ;;
+            *) echo "::error::$T has more than one published Release. Resolve it by hand."; exit 1 ;;
+          esac
+          for D in $DRAFTS; do
+            gh api -X DELETE "repos/$R/releases/$D"
+            echo "deleted leftover draft Release $D for $T"
+          done
+
+          if [ -n "$PUB" ]; then
+            # Published but incomplete: add what is missing, nothing else.
+            NAMES="$(gh api "repos/$R/releases/$PUB" --jq '.assets[].name')"
+            for A in "$ZIP" "$ZIP.sha256"; do
+              if grep -Fxq -- "$A" <<< "$NAMES"; then
+                echo "$A is already attached"
+              else
+                gh release upload "$T" --repo "$R" "$RUNNER_TEMP/dist/$A"
+                echo "attached $A"
+              fi
+            done
+            BODY="$(gh api "repos/$R/releases/$PUB" --jq .body)"
+            if ! grep -Fq -- "$SUM" <<< "$BODY"; then
+              { cat "$RUNNER_TEMP/header.md"; echo; printf '%s\n' "$BODY"; } > "$RUNNER_TEMP/body.md"
+              gh api -X PATCH "repos/$R/releases/$PUB" -F body=@"$RUNNER_TEMP/body.md" > /dev/null
+              echo "added the install notes above the existing ones"
+            fi
+            if [ "$LATEST" = true ]; then
+              gh api -X PATCH "repos/$R/releases/$PUB" -f make_latest=true > /dev/null
+              echo "marked $T Latest"
+            fi
+            exit 0
+          fi
+
+          # No published Release: build a draft, attach both assets, publish.
+          # In a new release the draft targets the release commit, and
+          # publishing creates the tag there. In a repair the tag exists, so
+          # GitHub ignores the target and attaches to the tag.
+          gh api -X POST "repos/$R/releases/generate-notes" \
+            -f tag_name="$T" -f target_commitish="$SHA" --jq .body > "$RUNNER_TEMP/generated.md"
+          { cat "$RUNNER_TEMP/header.md"; echo; cat "$RUNNER_TEMP/generated.md"; } > "$RUNNER_TEMP/notes.md"
+          ID="$(gh api -X POST "repos/$R/releases" -f tag_name="$T" -f target_commitish="$SHA" \
+                -f name="$T" -F draft=true -F body=@"$RUNNER_TEMP/notes.md" --jq .id)"
+          echo "created draft Release $ID for $T"
+          gh release upload "$T" --repo "$R" "$RUNNER_TEMP/dist/$ZIP" "$RUNNER_TEMP/dist/$ZIP.sha256"
+
+          # Publishing writes the tag at the target only while the tag is
+          # absent. If it has appeared, GitHub attaches the Release to it and
+          # ignores the target, so read the remote once more first.
+          RC=0
+          REFS="$(git ls-remote --exit-code origin "refs/tags/$T" "refs/tags/$T^{}")" || RC=$?
+          AT="$(printf '%s\n' "$REFS" | awk -v t="refs/tags/$T" \
+                '$2 == t "^{}" {p = $1} $2 == t {d = $1} END {print (p != "" ? p : d)}')"
+          case "$MODE:$RC" in
+            new:2) ;;
+            repair:0) [ "$AT" = "$SHA" ] || { echo "::error::$T moved to $AT. The draft is left unpublished."; exit 1; } ;;
+            *) echo "::error::$T is not as verify found it (git exit $RC, ${AT:-no tag}). The draft is left unpublished."; exit 1 ;;
+          esac
+          gh api -X PATCH "repos/$R/releases/$ID" -F draft=false -f make_latest="$LATEST" > /dev/null
+          echo "published $T (Latest=$LATEST)"
+
+      # Check the result, not the commands. The tag must name the release
+      # commit, exactly one published Release must carry both assets and the
+      # digest, the URL in the notes must serve the bytes verify checked
+      # (an `archive` source fetches exactly that URL), and Latest must be
+      # where it belongs. A failure is reported rather than repaired: a tag
+      # that users may already have fetched is not moved back quietly.
+      - name: Confirm the tag, the Release and the download
+        env:
+          LATEST: ${{ steps.tag.outputs.latest }}
+        run: |
+          R="$GITHUB_REPOSITORY"
+          REFS="$(git ls-remote origin "refs/tags/$T" "refs/tags/$T^{}")"
+          AT="$(printf '%s\n' "$REFS" | awk -v t="refs/tags/$T" \
+                '$2 == t "^{}" {p = $1} $2 == t {d = $1} END {print (p != "" ? p : d)}')"
+          [ "$AT" = "$SHA" ] \
+            || { echo "::error::$T is ${AT:-missing}, not the release commit $SHA. Resolve it by hand."; exit 1; }
+          PUB="$(gh api --paginate "repos/$R/releases?per_page=100" \
+                 --jq ".[] | select(.tag_name == \"$T\" and (.draft | not)) | .id")"
+          [ "$(printf '%s\n' "$PUB" | awk 'NF' | wc -l)" = 1 ] \
+            || { echo "::error::expected one published Release for $T, found: ${PUB:-none}"; exit 1; }
+          BODY="$(gh api "repos/$R/releases/$PUB" --jq .body)"
+          grep -Fq -- "$SUM" <<< "$BODY" \
+            || { echo "::error::the notes of $T do not carry the digest $SUM"; exit 1; }
+          URL="https://github.com/$R/releases/download/$T"
+          GOT="$(curl -fsSL "$URL/$ZIP" | sha256sum | cut -d' ' -f1)"
+          [ "$GOT" = "$SUM" ] \
+            || { echo "::error::the published $ZIP is $GOT, but $SUM was released"; exit 1; }
+          [ "$(curl -fsSL "$URL/$ZIP.sha256")" = "$SUM  $ZIP" ] \
+            || { echo "::error::the published $ZIP.sha256 does not record $SUM"; exit 1; }
+          L="$(gh api "repos/$R/releases/latest" --jq .tag_name 2>/dev/null || true)"
+          if [ "$LATEST" = true ]; then
+            [ "$L" = "$T" ] || { echo "::error::Latest is ${L:-unset}, but $T is the highest version"; exit 1; }
+          elif [ "$L" = "$T" ]; then
+            # Not this run's doing: it published with make_latest=false.
+            echo "::warning::$T is marked Latest, but a higher tabnas--v version exists. Finish that version's Release to move the mark."
+          fi
+          {
+            echo "### $T"
+            echo
+            echo "- commit: \`$SHA\` ($MODE)"
+            echo "- \`$ZIP\` sha256: \`$SUM\`"
+            echo "- Latest: $LATEST"
+            echo
+            echo "Not done by this workflow: regenerate \`web/src/data/skills.json\` (\`node tools/gen-ax-data.mjs\` in web), and move the community-marketplace entry once one exists."
+          } >> "$GITHUB_STEP_SUMMARY"
