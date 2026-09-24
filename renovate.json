@@ -1,4 +1,16 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["local>tabnas/.github:renovate-config"]
+  "extends": [
+    "local>tabnas/.github:renovate-config",
+    "customManagers:githubActionsVersions"
+  ],
+  "packageRules": [
+    {
+      "description": "release.yml's CLAUDE_CODE_VERSION follows Claude Code's stable dist-tag, not latest, by the maintainer's decision (2026-09-24): plugin releases are validated against the stable channel. See AGENTS.md and admin ADR-22.",
+      "matchPackageNames": [
+        "@anthropic-ai/claude-code"
+      ],
+      "followTag": "stable"
+    }
+  ]
 }
