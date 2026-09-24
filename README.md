@@ -64,7 +64,7 @@ commands they teach executable.
 [Two MCP manifests](#two-mcp-manifests) below):
 
 - **`tabnas` (stdio, local — the primary, recommended path).** Runs
-  `npx --yes @tabnas/mcp@0.1.15 mcp` — the package's one bin is the unified
+  `npx --yes @tabnas/mcp@0.1.16 mcp` — the package's one bin is the unified
   `tabnas` CLI, and its `mcp` subcommand is what starts the stdio server
   (without it you get CLI usage output, not a server). The `npx` invocation
   itself has two load-bearing parts:
