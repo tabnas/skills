@@ -151,8 +151,12 @@ check that the pin is the latest published version, run in
 [`release.yml`](.github/workflows/release.yml) before anything is
 published.
 
-Automation credentials cannot push changes to `.github/workflows/` (ADR-8),
-so a maintainer applies them.
+A change to a workflow is made in `.github/workflows/` directly, in a
+reviewed pull request (admin ADR-8, as amended 2026-09-24), and mirrored
+in admin's `rollout/workflows/skills__<file>`, which each workflow
+here has today. Otherwise admin `scripts/verify.sh` reports the drift,
+and a maintainer's next `rollout/apply-workflows.sh --apply` would push
+the old text back.
 
 ## Releases
 

@@ -162,9 +162,15 @@ special in two ways at once:
 CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) is
 `node tools/validate.js` on push and PR — offline, and nothing else; there
 is no build. The online pin check and the stale-pin check run only in
-`release.yml`, so run them yourself before a release PR. Automation
-credentials cannot push changes to `.github/workflows/` (ADR-8): a
-maintainer applies them.
+`release.yml`, so run them yourself before a release PR. To change a
+workflow, edit `.github/workflows/` in a reviewed pull request: session
+credentials push workflow files (admin `DECISIONS.md` ADR-8, as amended
+2026-09-24). They still cannot push tags, and a release never needs them
+to: publishing the Release writes the tag (see Releasing). Mirror every
+workflow change in admin's `rollout/workflows/skills__<file>`, which
+each workflow here has today, or admin `scripts/verify.sh` reports the
+drift and a maintainer's next `rollout/apply-workflows.sh --apply` would
+push the old text back.
 
 ## Releasing
 
