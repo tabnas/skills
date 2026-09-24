@@ -32,6 +32,15 @@ dependency change.
   its latest version needs no further one. Holding a dependency back,
   or adding, removing or re-pointing one, still does.
 
+**Held back, by the maintainer's decision (2026-09-24).**
+`CLAUDE_CODE_VERSION`, the Claude Code that `release.yml` validates the
+plugin with, follows Claude Code's `stable` npm dist-tag rather than
+`latest`: the maintainer prefers to validate plugin releases against the
+stable channel. `stable` trails `latest`, so this is a hold.
+`renovate.json` follows the same tag (`followTag`). Every other
+dependency tracks the latest release. Lift the hold only on the
+maintainer's instruction.
+
 ## Core principle: transient tasks report progress
 
 **Every transient task produces status output at least every 30 seconds,
@@ -42,7 +51,7 @@ sweep, an install or a fetch, a release, a wait on CI, a benchmark, a
 script or loop you write, and anything sent to the background.
 
 - **Minimal is enough.** One line with the step and a count, such as
-  `conformance: 412/1500 (27%)`, meets it. When no total is known, print
+  `conformance: 412 of 1500 (27%)`, meets it. When no total is known, print
   what is known (the step, the current item, the elapsed time) and say the
   percentage is unknown rather than inventing one.
 - **Build it into what you write.** A script or loop prints a line per
@@ -178,7 +187,8 @@ ones the zip carries, `PLUGIN_FILES` in `release.yml`.
 2. Wait for `ci` to go green on `main`.
 3. Dispatch the workflow on `main`, with `version` left empty:
    `gh workflow run release.yml -R tabnas/skills --ref main`.
-   It validates the release commit (including with a pinned Claude Code),
+   It validates the release commit (including with Claude Code pinned at
+   `CLAUDE_CODE_VERSION`, on the `stable` channel as stated above),
    builds the zip, rebuilds it on a second runner and requires the same
    bytes, then creates a draft Release, attaches both assets and publishes
    it. Publishing writes the tag. Only the highest `tabnas--v` version is

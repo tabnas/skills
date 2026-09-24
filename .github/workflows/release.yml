@@ -143,10 +143,15 @@ env:
     LICENSE
     README.md
   # Pinned so that a validator change cannot turn a release red on its own.
-  # Nothing moves it yet: the annotation below takes effect only once
-  # renovate.json extends customManagers:githubActionsVersions.
+  # It follows Claude Code's `stable` npm dist-tag, not `latest`: the
+  # maintainer's decision of 2026-09-24, recorded as an exception in admin
+  # ADR-22. renovate.json reads the annotation below (it extends
+  # customManagers:githubActionsVersions) and moves the pin with that tag
+  # (followTag) once the Renovate app runs on the org (admin
+  # rollout/README.md, step 3). Until then, move it by hand to
+  # `npm view @anthropic-ai/claude-code dist-tags.stable`.
   # renovate: datasource=npm depName=@anthropic-ai/claude-code
-  CLAUDE_CODE_VERSION: 2.1.281
+  CLAUDE_CODE_VERSION: 2.1.273
 
 jobs:
   verify:
