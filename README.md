@@ -153,7 +153,7 @@ published.
 
 A change to a workflow is made in `.github/workflows/` directly, in a
 reviewed pull request (admin ADR-8, as amended 2026-09-24), and mirrored
-in admin's `rollout/workflows/skills__<file>.yml`, which each workflow
+in admin's `rollout/workflows/skills__<file>`, which each workflow
 here has today. Otherwise admin `scripts/verify.sh` reports the drift,
 and a maintainer's next `rollout/apply-workflows.sh --apply` would push
 the old text back.
