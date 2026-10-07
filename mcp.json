@@ -2,7 +2,7 @@
   "servers": {
     "tabnas": {
       "type": "stdio",
-      "command": ["npx", "--yes", "@tabnas/mcp@0.1.18", "mcp"]
+      "command": ["npx", "--yes", "@tabnas/mcp@0.1.19", "mcp"]
     },
     "tabnas-hosted": {
       "type": "streamable-http",
