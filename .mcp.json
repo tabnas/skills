@@ -2,7 +2,7 @@
   "mcpServers": {
     "tabnas": {
       "command": "npx",
-      "args": ["--yes", "@tabnas/mcp@0.1.19", "mcp"]
+      "args": ["--yes", "@tabnas/mcp@0.1.20", "mcp"]
     },
     "tabnas-hosted": {
       "type": "http",

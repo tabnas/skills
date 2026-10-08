@@ -151,7 +151,7 @@ env:
   # rollout/README.md, step 3). Until then, move it by hand to
   # `npm view @anthropic-ai/claude-code dist-tags.stable`.
   # renovate: datasource=npm depName=@anthropic-ai/claude-code
-  CLAUDE_CODE_VERSION: 2.1.273
+  CLAUDE_CODE_VERSION: 2.1.285
 
 jobs:
   verify:
